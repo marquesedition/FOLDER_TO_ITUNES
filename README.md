@@ -11,6 +11,18 @@ Convierte una jerarquia de carpetas en disco en carpetas y playlists dentro de l
 osascript test_music.applescript "/ruta/a/tu/carpeta"
 ```
 
+**App visual (SwiftUI)**
+```bash
+swift run FolderToItunesApp
+```
+Luego selecciona la carpeta en la interfaz y pulsa **Crear playlists**.
+
+**Generar app (.app)**
+```bash
+./scripts/make_app.sh
+```
+La app queda en `dist/FolderToItunesApp.app`.
+
 **Que hace**
 - Crea una carpeta raiz en Music con el nombre de la carpeta base.
 - Para cada subcarpeta, crea una carpeta de playlists.
