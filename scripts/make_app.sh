@@ -19,6 +19,15 @@ if [[ -d "$BUILD_DIR/FOLDER_TO_ITUNES_${APP_NAME}.bundle" ]]; then
   cp -R "$BUILD_DIR/FOLDER_TO_ITUNES_${APP_NAME}.bundle" "$APP_BUNDLE/Contents/Resources/"
 fi
 
+ICON_ICNS_SRC="$REPO_DIR/Sources/FolderToItunesApp/Resources/AppIcon.icns"
+ICON_ICNS_DST="$APP_BUNDLE/Contents/Resources/AppIcon.icns"
+
+if [[ -f "$ICON_ICNS_SRC" ]]; then
+  cp "$ICON_ICNS_SRC" "$ICON_ICNS_DST"
+else
+  echo "warning: no se encontro $ICON_ICNS_SRC"
+fi
+
 cat > "$APP_BUNDLE/Contents/Info.plist" <<'EOF'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -32,12 +41,14 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<'EOF'
   <string>com.marquesedition.foldertoitunes</string>
   <key>CFBundleName</key>
   <string>FolderToItunes</string>
+  <key>CFBundleIconFile</key>
+  <string>AppIcon</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
-  <string>1.0</string>
+  <string>1.0.0</string>
   <key>CFBundleVersion</key>
-  <string>1</string>
+  <string>100</string>
   <key>LSMinimumSystemVersion</key>
   <string>13.0</string>
   <key>NSAppleEventsUsageDescription</key>

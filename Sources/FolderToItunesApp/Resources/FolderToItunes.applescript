@@ -1,5 +1,23 @@
 -- extensiones de audio permitidas
 property audioExts : {"mp3", "wav", "aiff", "m4a", "aac"}
+property progressDone : 0
+
+on emitLine(msg)
+    do shell script "printf " & quoted form of (msg & "\n")
+end emitLine
+
+on countAudioFiles(fsFolder)
+    tell application "System Events"
+        set audioFiles to files of fsFolder whose name extension is in audioExts
+        set childFolders to folders of fsFolder
+    end tell
+
+    set total to (count of audioFiles)
+    repeat with cf in childFolders
+        set total to total + (countAudioFiles(cf))
+    end repeat
+    return total
+end countAudioFiles
 
 -- devuelve el ultimo componente del path como nombre de carpeta
 on folderNameFromAlias(a)
@@ -44,7 +62,7 @@ end ensurePlaylist
 on processFolder(fsFolder, parentPlaylistFolder)
     tell application "System Events"
         set folderName to name of fsFolder
-        set audioFiles to files of fsFolder whose (name extension is "mp3" or name extension is "wav" or name extension is "aiff" or name extension is "m4a" or name extension is "aac")
+        set audioFiles to files of fsFolder whose name extension is in audioExts
         set childFolders to folders of fsFolder
     end tell
 
@@ -58,6 +76,8 @@ on processFolder(fsFolder, parentPlaylistFolder)
             try
                 tell application "Music" to add (POSIX path of (af as alias)) to p
             end try
+            set progressDone to progressDone + 1
+            emitLine("FILE_DONE=" & progressDone)
         end repeat
     end if
 
@@ -74,6 +94,14 @@ on run argv
 
     set basePath to POSIX file (item 1 of argv) as alias
 
+    emitLine("INFO=Determinando volumen de Music...")
+    try
+        tell application "Music" to set currentVolume to sound volume
+        emitLine("VOLUME_CURRENT=" & currentVolume)
+    on error errMsg
+        emitLine("WARN=No se pudo leer volumen: " & errMsg)
+    end try
+
     tell application "Music"
         activate
     end tell
@@ -87,7 +115,16 @@ on run argv
         set topFolders to folders of basePath
     end tell
 
+    set progressDone to 0
+    set totalFiles to 0
+    repeat with f in topFolders
+        set totalFiles to totalFiles + (countAudioFiles(f))
+    end repeat
+    emitLine("FILE_TOTAL=" & totalFiles)
+
     repeat with f in topFolders
         processFolder(f, rootPlaylistFolder)
     end repeat
+
+    emitLine("INFO=Importacion completada correctamente.")
 end run
