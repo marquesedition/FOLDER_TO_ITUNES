@@ -1,11 +1,11 @@
 name: Build macOS Artifact
 
 on:
+on:
   workflow_dispatch:
-  push:
+  pull_request:
     branches:
-      - feature/ui-refactor
-
+      - develop
 jobs:
   build:
     runs-on: macos-latest
