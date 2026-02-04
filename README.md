@@ -1,15 +1,25 @@
 # FOLDER_TO_ITUNES
 
-AppleScript para crear carpetas y playlists en Music a partir de la jerarquia de carpetas en disco.
+Convierte una jerarquia de carpetas en disco en carpetas y playlists dentro de la app Music (macOS).
+
+**Requisitos**
+- macOS con la app Music
+- Permisos de automatizacion para `osascript`, `Music` y `System Events`
 
 **Uso**
-1. Ejecuta pasando la ruta base como argumento:
-
 ```bash
-osascript test_music.applescript "/Volumes/DISK/Musica DJ NACH/Bass Music"
+osascript test_music.applescript "/ruta/a/tu/carpeta"
 ```
 
+**Que hace**
+- Crea una carpeta raiz en Music con el nombre de la carpeta base.
+- Para cada subcarpeta, crea una carpeta de playlists.
+- Dentro de cada carpeta, crea una playlist con los audios de esa carpeta.
+- Recorre subcarpetas de forma recursiva y mantiene la jerarquia.
+
+**Formatos soportados**
+- `mp3`, `wav`, `aiff`, `m4a`, `aac`
+
 **Notas**
-- Se crea una carpeta raiz en Music con el nombre de la carpeta base.
-- Se crea una carpeta de playlists por cada subcarpeta.
-- Dentro de cada carpeta se crea una playlist con los audios de esa carpeta.
+- Si una carpeta no tiene audios, solo se crea su carpeta de playlists.
+- Si la playlist ya existe, se reutiliza.
