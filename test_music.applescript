@@ -1,6 +1,3 @@
--- SOLO carpeta de prueba
-set basePath to POSIX file "/Volumes/DISK/Musica DJ NACH/" as alias
-
 -- extensiones de audio permitidas
 property audioExts : {"mp3", "wav", "aiff", "m4a", "aac"}
 
@@ -70,19 +67,27 @@ on processFolder(fsFolder, parentPlaylistFolder)
     end repeat
 end processFolder
 
-tell application "Music"
-    activate
-end tell
+on run argv
+    if (count of argv) < 1 then
+        error "Usage: osascript test_music.applescript \"/ruta/a/carpeta\""
+    end if
 
--- carpeta raiz en Music con el nombre de la carpeta base
-set rootName to folderNameFromAlias(basePath)
-set rootPlaylistFolder to ensurePlaylistFolder(rootName, missing value)
+    set basePath to POSIX file (item 1 of argv) as alias
 
--- procesar subcarpetas directas de la carpeta base
-tell application "System Events"
-    set topFolders to folders of basePath
-end tell
+    tell application "Music"
+        activate
+    end tell
 
-repeat with f in topFolders
-    processFolder(f, rootPlaylistFolder)
-end repeat
+    -- carpeta raiz en Music con el nombre de la carpeta base
+    set rootName to folderNameFromAlias(basePath)
+    set rootPlaylistFolder to ensurePlaylistFolder(rootName, missing value)
+
+    -- procesar subcarpetas directas de la carpeta base
+    tell application "System Events"
+        set topFolders to folders of basePath
+    end tell
+
+    repeat with f in topFolders
+        processFolder(f, rootPlaylistFolder)
+    end repeat
+end run

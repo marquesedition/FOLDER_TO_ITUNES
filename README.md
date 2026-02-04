@@ -3,11 +3,10 @@
 AppleScript para crear carpetas y playlists en Music a partir de la jerarquia de carpetas en disco.
 
 **Uso**
-1. Ajusta `basePath` en `test_music.applescript` con la ruta de tu carpeta raiz.
-2. Ejecuta:
+1. Ejecuta pasando la ruta base como argumento:
 
 ```bash
-osascript test_music.applescript
+osascript test_music.applescript "/Volumes/DISK/Musica DJ NACH/Bass Music"
 ```
 
 **Notas**
