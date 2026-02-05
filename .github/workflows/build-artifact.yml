@@ -1,11 +1,11 @@
-name: Build macOS Artifact
+name: Build macOS DMG
 
-on:
 on:
   workflow_dispatch:
   pull_request:
     branches:
       - develop
+
 jobs:
   build:
     runs-on: macos-latest
@@ -16,8 +16,15 @@ jobs:
       - name: Build app bundle
         run: ./scripts/make_app.sh
 
+      - name: Create DMG
+        run: |
+          cd dist
+          DMG_NAME="FolderToMusic_v1.0.0.dmg"
+          rm -f "$DMG_NAME"
+          hdiutil create -volname "FolderToMusic" -srcfolder "FolderToItunesApp.app" -ov -format UDZO "$DMG_NAME"
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: FolderToItunesApp.app
-          path: dist/FolderToItunesApp.app
+          name: FolderToMusic_v1.0.0.dmg
+          path: dist/FolderToMusic_v1.0.0.dmg
