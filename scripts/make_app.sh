@@ -51,6 +51,11 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<'EOF'
   <string>100</string>
   <key>LSMinimumSystemVersion</key>
   <string>13.0</string>
+  <key>LSEnvironment</key>
+  <dict>
+    <key>SWIFTPM_MODULE_BUNDLE_BASE</key>
+    <string>@executable_path/../Resources</string>
+  </dict>
   <key>NSAppleEventsUsageDescription</key>
   <string>Necesario para crear playlists y carpetas en Music.</string>
   <key>NSHighResolutionCapable</key>
