@@ -3,21 +3,8 @@ property audioExts : {"mp3", "wav", "aiff", "m4a", "aac"}
 property progressDone : 0
 
 on emitLine(msg)
-    do shell script "printf " & quoted form of (msg & "\n")
+    log msg
 end emitLine
-
-on countAudioFiles(fsFolder)
-    tell application "System Events"
-        set audioFiles to files of fsFolder whose name extension is in audioExts
-        set childFolders to folders of fsFolder
-    end tell
-
-    set total to (count of audioFiles)
-    repeat with cf in childFolders
-        set total to total + (countAudioFiles(cf))
-    end repeat
-    return total
-end countAudioFiles
 
 -- devuelve el ultimo componente del path como nombre de carpeta
 on folderNameFromAlias(a)
@@ -49,51 +36,121 @@ end ensurePlaylistFolder
 -- obtiene o crea una playlist dentro de parentFolder
 on ensurePlaylist(playlistName, parentFolder)
     tell application "Music"
-        set matches to (every playlist of parentFolder whose name is playlistName)
+        set matches to (every user playlist of parentFolder whose name is playlistName)
         if (count of matches) > 0 then
             return item 1 of matches
         else
-            return make new playlist at parentFolder with properties {name:playlistName}
+            return make new user playlist at parentFolder with properties {name:playlistName}
         end if
     end tell
 end ensurePlaylist
 
--- procesa una carpeta del disco y refleja jerarquia
-on processFolder(fsFolder, parentPlaylistFolder)
-    tell application "System Events"
-        set folderName to name of fsFolder
-        set audioFiles to files of fsFolder whose name extension is in audioExts
-        set childFolders to folders of fsFolder
-    end tell
+on splitLine(theLine)
+    set AppleScript's text item delimiters to tab
+    set parts to text items of theLine
+    set AppleScript's text item delimiters to ""
+    return parts
+end splitLine
 
-    -- crear carpeta de playlists para esta carpeta del disco
-    set thisPlaylistFolder to ensurePlaylistFolder(folderName, parentPlaylistFolder)
-
-    -- crear playlist para los archivos de audio directamente en esta carpeta
-    if (count of audioFiles) > 0 then
-        set p to ensurePlaylist(folderName, thisPlaylistFolder)
-        repeat with af in audioFiles
-            try
-                tell application "Music" to add (POSIX path of (af as alias)) to p
-            end try
-            set progressDone to progressDone + 1
-            emitLine("FILE_DONE=" & progressDone)
-        end repeat
-    end if
-
-    -- recursivo para subcarpetas
-    repeat with cf in childFolders
-        processFolder(cf, thisPlaylistFolder)
+on indexOfPath(thePath, pathList)
+    repeat with i from 1 to (count of pathList)
+        if item i of pathList is thePath then return i
     end repeat
-end processFolder
+    return 0
+end indexOfPath
+
+on folderPlaylistForPath(thePath, pathList, folderList)
+    set idx to indexOfPath(thePath, pathList)
+    if idx is 0 then return missing value
+    return item idx of folderList
+end folderPlaylistForPath
+
+on playlistForPath(thePath, playlistPaths, playlistList)
+    set idx to indexOfPath(thePath, playlistPaths)
+    if idx is 0 then return missing value
+    return item idx of playlistList
+end playlistForPath
+
+on buildFromManifest(manifestPath)
+    set fileText to read file (POSIX file manifestPath) as «class utf8»
+    set theLines to paragraphs of fileText
+
+    set folderPaths to {}
+    set folderPlaylists to {}
+    set playlistPaths to {}
+    set playlists to {}
+
+    set totalFiles to 0
+    repeat with ln in theLines
+        if ln starts with "FILE" & tab then set totalFiles to totalFiles + 1
+    end repeat
+    emitLine("FILE_TOTAL=" & totalFiles)
+    emitLine("INFO=Total de archivos detectados: " & totalFiles)
+
+    repeat with ln in theLines
+        if ln starts with "DIR" & tab then
+            set parts to splitLine(ln)
+            if (count of parts) ≥ 3 then
+                set dirPath to item 2 of parts
+                set parentPath to item 3 of parts
+                set parentFolder to missing value
+                if parentPath is not "" then
+                    set parentFolder to folderPlaylistForPath(parentPath, folderPaths, folderPlaylists)
+                end if
+                set folderName to do shell script "basename " & quoted form of dirPath
+                set thisFolder to ensurePlaylistFolder(folderName, parentFolder)
+                set end of folderPaths to dirPath
+                set end of folderPlaylists to thisFolder
+            end if
+        end if
+    end repeat
+
+    repeat with ln in theLines
+        if ln starts with "FILE" & tab then
+            set parts to splitLine(ln)
+            if (count of parts) ≥ 3 then
+                set filePath to item 2 of parts
+                set parentPath to item 3 of parts
+                set parentFolder to folderPlaylistForPath(parentPath, folderPaths, folderPlaylists)
+                if parentFolder is missing value then
+                    emitLine("WARN=No se encontro carpeta para: " & parentPath)
+                else
+                    set p to playlistForPath(parentPath, playlistPaths, playlists)
+                    if p is missing value then
+                        set folderName to do shell script "basename " & quoted form of parentPath
+                        set p to ensurePlaylist(folderName, parentFolder)
+                        set end of playlistPaths to parentPath
+                        set end of playlists to p
+                        emitLine("INFO=Playlist creada: " & folderName)
+                    end if
+                    try
+                        set fileAlias to (POSIX file filePath) as alias
+                        tell application "Music" to add fileAlias to p
+                    on error errMsg
+                        emitLine("WARN_ADD=" & filePath & " :: " & errMsg)
+                    end try
+                    set progressDone to progressDone + 1
+                    emitLine("FILE_DONE=" & progressDone)
+                end if
+            end if
+        end if
+    end repeat
+end buildFromManifest
 
 on run argv
     if (count of argv) < 1 then
         error "Usage: osascript FolderToItunes.applescript \"/ruta/a/carpeta\""
     end if
 
-    set basePath to POSIX file (item 1 of argv) as alias
+    if (count of argv) < 2 then
+        error "Usage: osascript FolderToItunes.applescript \"/ruta/a/carpeta\" \"/ruta/a/manifest\""
+    end if
 
+    set basePath to item 1 of argv
+    set manifestPath to item 2 of argv
+
+    emitLine("INFO=Inicio de importacion")
+    emitLine("INFO=Ruta base: " & basePath)
     emitLine("INFO=Determinando volumen de Music...")
     try
         tell application "Music" to set currentVolume to sound volume
@@ -106,25 +163,8 @@ on run argv
         activate
     end tell
 
-    -- carpeta raiz en Music con el nombre de la carpeta base
-    set rootName to folderNameFromAlias(basePath)
-    set rootPlaylistFolder to ensurePlaylistFolder(rootName, missing value)
-
-    -- procesar subcarpetas directas de la carpeta base
-    tell application "System Events"
-        set topFolders to folders of basePath
-    end tell
-
     set progressDone to 0
-    set totalFiles to 0
-    repeat with f in topFolders
-        set totalFiles to totalFiles + (countAudioFiles(f))
-    end repeat
-    emitLine("FILE_TOTAL=" & totalFiles)
-
-    repeat with f in topFolders
-        processFolder(f, rootPlaylistFolder)
-    end repeat
+    buildFromManifest(manifestPath)
 
     emitLine("INFO=Importacion completada correctamente.")
 end run

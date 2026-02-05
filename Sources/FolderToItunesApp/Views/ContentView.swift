@@ -12,12 +12,16 @@ struct ContentView: View {
     @State private var volumeValue: Int?
     @State private var volumeStatus: String?
     @State private var elapsedSeconds = 0
+    @State private var lastElapsedSeconds: Int?
     @State private var timer: Timer?
     @State private var runningTask: Process?
     @State private var prefersDark = true
     @State private var selectedLanguage = "Español"
+    @State private var previewRoot: FolderNode?
+    @State private var previewError: String?
+    @State private var previewConfirmed = false
 
-    private let buildStamp = "Build 2026-02-04 23:49"
+    private var buildStamp: String { "Build \(buildStampText())" }
     private let appVersion = "v1.0.0"
 
     private var strings: AppStrings { AppStrings(language: selectedLanguage) }
@@ -44,7 +48,7 @@ struct ContentView: View {
                             current: currentStep(),
                             step1: strings.text("step1"),
                             step2: strings.text("step2"),
-                            step3: strings.text("step3")
+                            step3: isRunning ? strings.text("step3_running") : strings.text("step3")
                         )
 
                         Text(statusText())
@@ -54,6 +58,7 @@ struct ContentView: View {
                         VStack(spacing: 12) {
                             outputCard
                             sourceCard
+                            previewCard
                             importCard
                             progressCard
                         }
@@ -131,29 +136,116 @@ struct ContentView: View {
 
     private var outputCard: some View {
         CardView(icon: "terminal.fill", accent: .orange, title: strings.text("output_title"), subtitle: strings.text("output_subtitle")) {
-            ScrollView {
-                Text(logText)
-                    .font(.system(size: 12, design: .monospaced))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(10)
-                    .background(Color(nsColor: .textBackgroundColor))
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 10)
-                            .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
-                    )
+            VStack(alignment: .leading, spacing: 8) {
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        Text(logText)
+                            .font(.system(size: 12, design: .monospaced))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(10)
+                            .background(Color(nsColor: .textBackgroundColor))
+                            .clipShape(RoundedRectangle(cornerRadius: 10))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 10)
+                                    .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
+                            )
+                            .id("log_bottom")
+                    }
+                    .frame(minHeight: 130, maxHeight: 220)
+                    .onChange(of: logText) { _ in
+                        withAnimation(.easeOut(duration: 0.2)) {
+                            proxy.scrollTo("log_bottom", anchor: .bottom)
+                        }
+                    }
+                }
+
+                HStack {
+                    Button(strings.text("clear_output")) {
+                        logText = ""
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(logText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    Button(strings.text("copy_output")) {
+                        copyOutput()
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(logText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    Spacer()
+                }
             }
-            .frame(minHeight: 130)
         }
     }
 
     private var sourceCard: some View {
         CardView(icon: "folder.fill", accent: .blue, title: strings.text("source_title"), subtitle: selectedURL?.path ?? strings.text("source_subtitle")) {
-            Button(strings.text("choose_folder")) {
-                pickFolder()
+            VStack(alignment: .leading, spacing: 8) {
+                Button(strings.text("choose_folder")) {
+                    pickFolder()
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .disabled(selectedURL != nil)
+
+                if let selectedURL {
+                    HStack(spacing: 8) {
+                        Text(selectedURL.path)
+                            .font(.system(size: 12))
+                            .foregroundColor(.secondary)
+                            .lineLimit(2)
+                        Spacer()
+                        Button(strings.text("remove_folder")) {
+                            self.selectedURL = nil
+                            previewRoot = nil
+                            previewError = nil
+                            previewConfirmed = false
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                    }
+                }
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
+        }
+    }
+
+    private var previewCard: some View {
+        CardView(icon: "list.bullet.rectangle", accent: .teal, title: strings.text("preview_title"), subtitle: strings.text("preview_subtitle")) {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 8) {
+                    Button(previewRoot == nil ? strings.text("preview_generate") : strings.text("preview_refresh")) {
+                        buildPreview()
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(selectedURL == nil)
+                    if !canRunScript {
+                        Text(strings.text("preview_hint"))
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                    }
+                    Spacer()
+                }
+
+                if let previewError {
+                    Text(String(format: strings.text("preview_error"), previewError))
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
+                } else if let previewRoot {
+                    ScrollView {
+                        FolderNodeView(node: previewRoot, strings: strings)
+                            .padding(8)
+                    }
+                    .frame(maxHeight: 240)
+
+                    Toggle(strings.text("preview_confirm"), isOn: $previewConfirmed)
+                        .toggleStyle(.switch)
+                } else {
+                    Text(strings.text("preview_empty"))
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
+                }
+            }
         }
     }
 
@@ -165,7 +257,7 @@ struct ContentView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
-                .disabled(isRunning || selectedURL == nil)
+                .disabled(isRunning || !canRunScript)
 
                 Button(strings.text("cancel")) {
                     cancelScript()
@@ -183,15 +275,28 @@ struct ContentView: View {
     }
 
     private var progressCard: some View {
-        CardView(icon: "chart.bar.fill", accent: .purple, title: strings.text("progress_title"), subtitle: progressTotal > 0 ? strings.text("progress_subtitle_busy") : strings.text("progress_subtitle_idle")) {
+        CardView(icon: "chart.bar.fill", accent: .purple, title: strings.text("progress_title"), subtitle: progressSubtitle()) {
             VStack(alignment: .leading, spacing: 6) {
-                if progressTotal > 0 {
+                let isDone = progressTotal > 0 && progressCurrent >= progressTotal && !isRunning
+                if isDone {
+                    Text(strings.text("progress_done"))
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(.secondary)
+                    Text(totalElapsedText())
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
+                } else if progressTotal > 0 {
                     ProgressView(value: Double(progressCurrent), total: Double(progressTotal))
                     Text(String(format: strings.text("progress_line"), progressCurrent, progressTotal, percentText(), elapsedText()))
                         .font(.system(size: 12))
                         .foregroundColor(.secondary)
                 } else if isRunning {
-                    Text(strings.text("progress_preparing"))
+                    ProgressView()
+                        .progressViewStyle(.circular)
+                    let runningLine = progressCurrent > 0
+                        ? String(format: strings.text("progress_line_running"), progressCurrent, elapsedText())
+                        : strings.text("progress_preparing")
+                    Text(runningLine)
                         .font(.system(size: 12))
                         .foregroundColor(.secondary)
                 } else {
@@ -224,6 +329,9 @@ struct ContentView: View {
 
         if panel.runModal() == .OK {
             selectedURL = panel.url
+            previewRoot = nil
+            previewError = nil
+            previewConfirmed = false
             logText = String(format: strings.text("log_folder_selected"), selectedURL?.path ?? "")
         }
     }
@@ -235,9 +343,21 @@ struct ContentView: View {
             logText = strings.text("log_select_first")
             return
         }
+        guard previewConfirmed else {
+            logText = strings.text("log_confirm_preview")
+            return
+        }
 
         guard let scriptURL = Bundle.module.url(forResource: "FolderToItunes", withExtension: "applescript") else {
             logText = strings.text("log_missing_script")
+            return
+        }
+
+        let manifestPath: String
+        do {
+            manifestPath = try writeManifest(for: selectedURL)
+        } catch {
+            logText = String(format: strings.text("log_manifest_failed"), error.localizedDescription)
             return
         }
 
@@ -247,12 +367,13 @@ struct ContentView: View {
         volumeValue = nil
         volumeStatus = strings.text("volume_determining")
         elapsedSeconds = 0
+        lastElapsedSeconds = nil
         startTimer()
         logText = strings.text("log_running")
 
         let task = Process()
         task.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-        task.arguments = [scriptURL.path, selectedURL.path]
+        task.arguments = [scriptURL.path, selectedURL.path, manifestPath]
         runningTask = task
 
         let outputPipe = Pipe()
@@ -283,6 +404,7 @@ struct ContentView: View {
                 stopTimer()
                 isRunning = false
                 runningTask = nil
+                lastElapsedSeconds = elapsedSeconds
                 if logText.hasPrefix("Error:") {
                     return
                 }
@@ -363,8 +485,18 @@ struct ContentView: View {
             volumeStatus = strings.text("volume_unavailable")
         }
 
-        let prefix = isError ? "Error: " : ""
-        logText = "\(prefix)\(trimmed)\n" + logText
+        let isScriptSignal = trimmed.hasPrefix("INFO=") ||
+            trimmed.hasPrefix("WARN=") ||
+            trimmed.hasPrefix("WARN_ADD=") ||
+            trimmed.hasPrefix("FILE_TOTAL=") ||
+            trimmed.hasPrefix("FILE_DONE=") ||
+            trimmed.hasPrefix("VOLUME_CURRENT=")
+        let prefix = (isError && !isScriptSignal) ? "Error: " : ""
+        if logText.isEmpty {
+            logText = "\(prefix)\(trimmed)"
+        } else {
+            logText = logText + "\n" + "\(prefix)\(trimmed)"
+        }
     }
 
     // MARK: - Timing & Status
@@ -400,9 +532,152 @@ struct ContentView: View {
         return "\(pct)%"
     }
 
+    private var canRunScript: Bool {
+        selectedURL != nil && previewConfirmed
+    }
+
+    private func progressSubtitle() -> String {
+        if progressTotal > 0 && progressCurrent >= progressTotal && !isRunning {
+            return strings.text("status_done")
+        }
+        if progressTotal > 0 || isRunning {
+            return strings.text("progress_subtitle_busy")
+        }
+        return strings.text("progress_subtitle_idle")
+    }
+
     private func elapsedText() -> String {
         let minutes = elapsedSeconds / 60
         let seconds = elapsedSeconds % 60
         return String(format: strings.text("elapsed"), minutes, seconds)
+    }
+
+    private func totalElapsedText() -> String {
+        let total = lastElapsedSeconds ?? elapsedSeconds
+        let minutes = total / 60
+        let seconds = total % 60
+        return String(format: strings.text("elapsed_total"), minutes, seconds)
+    }
+
+    private func buildPreview() {
+        guard let selectedURL else { return }
+        previewError = nil
+        previewConfirmed = false
+        do {
+            previewRoot = try buildFolderNode(url: selectedURL)
+        } catch {
+            previewRoot = nil
+            previewError = error.localizedDescription
+        }
+    }
+
+    private func buildFolderNode(url: URL) throws -> FolderNode {
+        let fm = FileManager.default
+        let keys: [URLResourceKey] = [.isDirectoryKey]
+        let contents = try fm.contentsOfDirectory(at: url, includingPropertiesForKeys: keys, options: [.skipsHiddenFiles])
+
+        var children: [FolderNode] = []
+        var audioCount = 0
+        for item in contents {
+            let values = try item.resourceValues(forKeys: Set(keys))
+            if values.isDirectory == true {
+                let child = try buildFolderNode(url: item)
+                children.append(child)
+            } else {
+                let ext = item.pathExtension.lowercased()
+                if FolderNode.audioExts.contains(ext) {
+                    audioCount += 1
+                }
+            }
+        }
+
+        return FolderNode(
+            id: UUID(),
+            name: url.lastPathComponent,
+            audioCount: audioCount,
+            children: children.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        )
+    }
+
+    private func writeManifest(for baseURL: URL) throws -> String {
+        var lines: [String] = []
+        let fm = FileManager.default
+
+        func walk(_ url: URL, parent: URL?) throws {
+            let dirLine = "DIR\t\(url.path)\t\(parent?.path ?? "")"
+            lines.append(dirLine)
+
+            let contents = try fm.contentsOfDirectory(at: url, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles])
+            let sorted = contents.sorted { $0.lastPathComponent.localizedCaseInsensitiveCompare($1.lastPathComponent) == .orderedAscending }
+            for item in sorted {
+                let values = try item.resourceValues(forKeys: [.isDirectoryKey])
+                if values.isDirectory == true {
+                    try walk(item, parent: url)
+                } else {
+                    let ext = item.pathExtension.lowercased()
+                    if FolderNode.audioExts.contains(ext) {
+                        lines.append("FILE\t\(item.path)\t\(url.path)")
+                    }
+                }
+            }
+        }
+
+        try walk(baseURL, parent: nil)
+
+        let manifest = lines.joined(separator: "\n")
+        let tmpURL = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("folder_to_music_manifest.txt")
+        try manifest.write(to: tmpURL, atomically: true, encoding: .utf8)
+        return tmpURL.path
+    }
+
+    private func buildStampText() -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd HH:mm"
+        formatter.timeZone = TimeZone(identifier: "Europe/Madrid")
+        return formatter.string(from: Date())
+    }
+
+    private func copyOutput() {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(logText, forType: .string)
+    }
+}
+
+private struct FolderNode: Identifiable {
+    static let audioExts: Set<String> = ["mp3", "wav", "aiff", "m4a", "aac"]
+    let id: UUID
+    let name: String
+    let audioCount: Int
+    let children: [FolderNode]
+}
+
+private struct FolderNodeView: View {
+    let node: FolderNode
+    let strings: AppStrings
+
+    var body: some View {
+        DisclosureGroup {
+            if node.audioCount > 0 {
+                HStack(spacing: 6) {
+                    Image(systemName: "music.note.list")
+                        .foregroundColor(.secondary)
+                    Text(String(format: strings.text("preview_playlist_count"), node.name, node.audioCount))
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
+                }
+                .padding(.leading, 18)
+                .padding(.vertical, 2)
+            }
+
+            ForEach(node.children) { child in
+                FolderNodeView(node: child, strings: strings)
+                    .padding(.leading, 12)
+            }
+        } label: {
+            Text(node.name)
+                .font(.system(size: 12, weight: .semibold))
+        }
     }
 }
